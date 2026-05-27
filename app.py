@@ -26,6 +26,7 @@ GROQ_MODEL_NAME = "llama-3.1-8b-instant"
 rag_pipeline = None
 rag_init_lock = threading.Lock()
 rag_init_error = None
+rag_init_started = False
 
 # Basic logger
 logger = logging.getLogger("medical_chatbot")
@@ -135,12 +136,26 @@ def init_rag():
             logger.exception("Failed to initialize RAG pipeline: %s", rag_init_error)
 
 
+def ensure_rag_init_started():
+    """Kick off RAG initialization in background once."""
+    global rag_init_started
+    if rag_pipeline is not None:
+        return
+    with rag_init_lock:
+        if rag_pipeline is not None or rag_init_started:
+            return
+        rag_init_started = True
+        thread = threading.Thread(target=init_rag, daemon=True)
+        thread.start()
+
+
 @app.route("/health")
 def health():
     """Lightweight health/debug endpoint."""
-    init_rag()
+    ensure_rag_init_started()
     return {
         "rag_pipeline_ready": rag_pipeline is not None,
+        "rag_init_started": rag_init_started,
         "rag_init_error": rag_init_error,
         "pinecone_index": PINECONE_INDEX_NAME,
         "groq_model": GROQ_MODEL_NAME,
@@ -158,7 +173,13 @@ def get_response():
     if not user_input:
         return "Please enter a message.", 400
 
-    init_rag()
+    ensure_rag_init_started()
+
+    if rag_pipeline is None and rag_init_error is None:
+        return (
+            "Model is warming up. Please retry in 20-60 seconds.",
+            503,
+        )
 
     if rag_init_error:
         logger.error("RAG init error: %s", rag_init_error)
