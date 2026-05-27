@@ -44,21 +44,37 @@ def init_rag():
     """Lazy initialize LangChain, Pinecone, and Groq components."""
     global rag_pipeline, rag_init_error
 
-    if rag_pipeline is not None or rag_init_error is not None:
+    # If we already have a pipeline, nothing to do.
+    # If we had a previous init error, we allow retries (e.g. after fixing env vars).
+    if rag_pipeline is not None:
         return
 
     with rag_init_lock:
-        if rag_pipeline is not None or rag_init_error is not None:
+        if rag_pipeline is not None:
             return
 
         try:
-            import pinecone
+            # Prefer the modern Pinecone + LangChain integration (works with pinecone>=6).
+            # Fall back to the legacy LangChain vectorstore if needed.
+            PineconeVectorStore = None
+            pc = None
+            index = None
+
             try:
-                # LangChain >= 0.1 (community split)
-                from langchain_community.vectorstores import Pinecone as PineconeVectorStore
+                from pinecone import Pinecone  # pinecone>=3
+                from langchain_pinecone import PineconeVectorStore as LCPineconeVectorStore
+
+                pc = Pinecone(api_key=PINECONE_API_KEY)
+                index = pc.Index(PINECONE_INDEX_NAME)
+                PineconeVectorStore = LCPineconeVectorStore
             except Exception:
-                # Older LangChain
-                from langchain.vectorstores import Pinecone as PineconeVectorStore
+                import pinecone  # legacy client
+                try:
+                    # LangChain >= 0.1 (community split)
+                    from langchain_community.vectorstores import Pinecone as PineconeVectorStore
+                except Exception:
+                    # Older LangChain
+                    from langchain.vectorstores import Pinecone as PineconeVectorStore
             from langchain_groq import ChatGroq
             from langchain.chains import create_retrieval_chain
             from langchain.chains.combine_documents import create_stuff_documents_chain
@@ -77,17 +93,20 @@ def init_rag():
 
             embedding_model = initialize_embeddings()
 
-            # Support both Pinecone client APIs (v2/v3)
-            try:
-                pinecone.init(api_key=PINECONE_API_KEY)
-            except Exception:
-                # pinecone>=3 uses Pinecone() client; LangChain wrapper reads env vars.
-                pass
+            if pc is not None and index is not None and PineconeVectorStore is not None:
+                # langchain-pinecone path
+                vector_store = PineconeVectorStore(index=index, embedding=embedding_model)
+            else:
+                # Legacy langchain_community path
+                try:
+                    pinecone.init(api_key=PINECONE_API_KEY)
+                except Exception:
+                    pass
 
-            vector_store = PineconeVectorStore.from_existing_index(
-                index_name=PINECONE_INDEX_NAME,
-                embedding=embedding_model,
-            )
+                vector_store = PineconeVectorStore.from_existing_index(
+                    index_name=PINECONE_INDEX_NAME,
+                    embedding=embedding_model,
+                )
 
             document_retriever = vector_store.as_retriever(
                 search_type="similarity",
@@ -107,12 +126,25 @@ def init_rag():
 
             document_chain = create_stuff_documents_chain(llm_model, chat_prompt)
             rag_pipeline = create_retrieval_chain(document_retriever, document_chain)
+            rag_init_error = None
 
             logger.info("RAG pipeline initialized successfully")
 
         except Exception as exc:
             rag_init_error = str(exc)
             logger.exception("Failed to initialize RAG pipeline: %s", rag_init_error)
+
+
+@app.route("/health")
+def health():
+    """Lightweight health/debug endpoint."""
+    init_rag()
+    return {
+        "rag_pipeline_ready": rag_pipeline is not None,
+        "rag_init_error": rag_init_error,
+        "pinecone_index": PINECONE_INDEX_NAME,
+        "groq_model": GROQ_MODEL_NAME,
+    }
 
 
 @app.route("/")
@@ -140,7 +172,9 @@ def get_response():
         result = rag_pipeline.invoke({"input": user_input})
         if isinstance(result, dict):
             answer = result.get("answer") or result.get("result") or ""
-            return answer if answer else "Sorry, I couldn't generate a response right now.", 500
+            if answer:
+                return answer
+            return "Sorry, I couldn't generate a response right now.", 500
         return str(result)
     except Exception:
         logger.exception("Failed to generate bot response")

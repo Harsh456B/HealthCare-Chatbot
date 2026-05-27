@@ -170,6 +170,9 @@
                         chatMessages.find(".typing-indicator").parent().parent().remove();
                         
                         // Display error message
+                        const serverMessage = (xhr && xhr.responseText && xhr.responseText.trim())
+                            ? xhr.responseText.trim()
+                            : "Sorry, I encountered an error. Please try again.";
                         const errorMessageHtml = `
                             <div class="d-flex justify-content-start mb-4">
                                 <div class="img_cont_msg">
@@ -178,7 +181,7 @@
                                          alt="Bot">
                                 </div>
                                 <div class="msg_cotainer">
-                                    Sorry, I encountered an error. Please try again.
+                                    ${escapeHtml(serverMessage)}
                                     <span class="msg_time">${timeString}</span>
                                 </div>
                             </div>
