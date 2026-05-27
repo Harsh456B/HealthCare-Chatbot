@@ -27,6 +27,7 @@ rag_pipeline = None
 rag_init_lock = threading.Lock()
 rag_init_error = None
 rag_init_started = False
+rag_init_thread = None
 
 # Basic logger
 logger = logging.getLogger("medical_chatbot")
@@ -138,9 +139,22 @@ def init_rag():
 
 def ensure_rag_init_started():
     """Kick off RAG initialization in background once."""
-    global rag_init_started
+    global rag_init_started, rag_init_thread
     if rag_pipeline is not None:
         return
+
+    # If a previous init thread died without producing a pipeline/error,
+    # allow a clean retry.
+    if (
+        rag_init_started
+        and rag_pipeline is None
+        and rag_init_error is None
+        and rag_init_thread is not None
+        and not rag_init_thread.is_alive()
+    ):
+        rag_init_started = False
+        rag_init_thread = None
+
     # Do not block requests if init is already running (init_rag holds this lock
     # during heavy model/vector initialization).
     acquired = rag_init_lock.acquire(blocking=False)
@@ -150,8 +164,8 @@ def ensure_rag_init_started():
         if rag_pipeline is not None or rag_init_started:
             return
         rag_init_started = True
-        thread = threading.Thread(target=init_rag, daemon=True)
-        thread.start()
+        rag_init_thread = threading.Thread(target=init_rag, daemon=True)
+        rag_init_thread.start()
     finally:
         rag_init_lock.release()
 
@@ -163,6 +177,7 @@ def health():
     return {
         "rag_pipeline_ready": rag_pipeline is not None,
         "rag_init_started": rag_init_started,
+        "rag_init_thread_alive": bool(rag_init_thread and rag_init_thread.is_alive()),
         "rag_init_error": rag_init_error,
         "pinecone_index": PINECONE_INDEX_NAME,
         "groq_model": GROQ_MODEL_NAME,
