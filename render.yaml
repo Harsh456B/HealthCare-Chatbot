@@ -4,5 +4,7 @@ services:
     env: docker
     repo: https://github.com/Harsh456B/MedicalChatbot
     branch: main
+    dockerContext: .
+    dockerfilePath: Dockerfile
     startCommand: gunicorn --bind 0.0.0.0 $PORT app:app
     plan: free
