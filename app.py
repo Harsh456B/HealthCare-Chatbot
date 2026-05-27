@@ -6,7 +6,8 @@ A Flask-based RAG chatbot for medical queries using LangChain, Pinecone, and Gro
 import os
 from flask import Flask, render_template, request
 from dotenv import load_dotenv
-from langchain_pinecone import PineconeVectorStore
+from langchain.vectorstores import Pinecone as PineconeVectorStore
+import pinecone
 from langchain_groq import ChatGroq
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
