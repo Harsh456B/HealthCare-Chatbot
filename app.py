@@ -4,29 +4,11 @@ A Flask-based RAG chatbot for medical queries using LangChain, Pinecone, and Gro
 """
 
 import os
+import sys
 import threading
 import logging
 from flask import Flask, render_template, request
 from dotenv import load_dotenv
-from src.prompt import get_system_prompt_template
-    raise RuntimeError(
-        f"Detected Python {sys.version_info.major}.{sys.version_info.minor}.\n"
-        "This application requires Python 3.11. Please set your host to use Python 3.11.\n"
-        "If you are deploying to Render, either: (1) set the service runtime to Python 3.11,\n"
-        "or (2) deploy using the provided Dockerfile which pins Python 3.11."
-    )
-
-import os
-from flask import Flask, render_template, request
-from dotenv import load_dotenv
-from langchain.vectorstores import Pinecone as PineconeVectorStore
-import pinecone
-from langchain_groq import ChatGroq
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
-
-from src.helper import initialize_embeddings
 from src.prompt import get_system_prompt_template
 
 load_dotenv()
@@ -49,8 +31,6 @@ rag_init_error = None
 logger = logging.getLogger("medical_chatbot")
 logging.basicConfig(level=logging.INFO)
 
-# Warn (but do not fail) on unsupported Python versions so we can still start
-import sys
 if sys.version_info >= (3, 12):
     logger.warning(
         "Running on Python %s.%s — some dependencies may be incompatible. "
@@ -61,11 +41,7 @@ if sys.version_info >= (3, 12):
 
 
 def init_rag():
-    """Lazy initialize LangChain, Pinecone, and Groq components.
-
-    This avoids importing heavy/typing-sensitive libraries at module import
-    time which can crash under newer Python runtimes on some hosts.
-    """
+    """Lazy initialize LangChain, Pinecone, and Groq components."""
     global rag_pipeline, rag_init_error
 
     if rag_pipeline is not None or rag_init_error is not None:
@@ -76,58 +52,100 @@ def init_rag():
             return
 
         try:
-            # Import heavy deps here
             import pinecone
-            from langchain.vectorstores import Pinecone as PineconeVectorStore
+            try:
+                # LangChain >= 0.1 (community split)
+                from langchain_community.vectorstores import Pinecone as PineconeVectorStore
+            except Exception:
+                # Older LangChain
+                from langchain.vectorstores import Pinecone as PineconeVectorStore
             from langchain_groq import ChatGroq
             from langchain.chains import create_retrieval_chain
             from langchain.chains.combine_documents import create_stuff_documents_chain
             from langchain_core.prompts import ChatPromptTemplate
             from src.helper import initialize_embeddings
 
-            # Set environment variables for downstream libs
+            if not PINECONE_API_KEY:
+                raise RuntimeError("Missing PINECONE_API_KEY")
+            if not GROQ_API_KEY:
+                raise RuntimeError("Missing GROQ_API_KEY")
+
             if PINECONE_API_KEY:
                 os.environ["PINECONE_API_KEY"] = PINECONE_API_KEY
             if GROQ_API_KEY:
                 os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
-            # Initialize embeddings
             embedding_model = initialize_embeddings()
 
-            # Connect to Pinecone (if API key exists)
-            if PINECONE_API_KEY:
+            # Support both Pinecone client APIs (v2/v3)
+            try:
                 pinecone.init(api_key=PINECONE_API_KEY)
+            except Exception:
+                # pinecone>=3 uses Pinecone() client; LangChain wrapper reads env vars.
+                pass
 
             vector_store = PineconeVectorStore.from_existing_index(
                 index_name=PINECONE_INDEX_NAME,
-                embedding=embedding_model
+                embedding=embedding_model,
             )
 
-            # Create retriever
             document_retriever = vector_store.as_retriever(
                 search_type="similarity",
-                search_kwargs={"k": 3}
+                search_kwargs={"k": 3},
             )
 
-            # Initialize Groq chat model
             llm_model = ChatGroq(
                 model=GROQ_MODEL_NAME,
                 api_key=GROQ_API_KEY,
-                temperature=0
+                temperature=0,
             )
 
-            # Create prompt template
             chat_prompt = ChatPromptTemplate.from_messages([
                 ("system", get_system_prompt_template()),
                 ("human", "{input}"),
             ])
 
-            # Build RAG chain
             document_chain = create_stuff_documents_chain(llm_model, chat_prompt)
             rag_pipeline = create_retrieval_chain(document_retriever, document_chain)
 
             logger.info("RAG pipeline initialized successfully")
 
-        except Exception as e:
-            rag_init_error = str(e)
+        except Exception as exc:
+            rag_init_error = str(exc)
             logger.exception("Failed to initialize RAG pipeline: %s", rag_init_error)
+
+
+@app.route("/")
+def index():
+    return render_template("chat.html")
+
+
+@app.route("/get", methods=["POST"])
+def get_response():
+    user_input = request.form.get("msg", "").strip()
+    if not user_input:
+        return "Please enter a message.", 400
+
+    init_rag()
+
+    if rag_init_error:
+        logger.error("RAG init error: %s", rag_init_error)
+        return (
+            "Unable to process requests at this time. "
+            "Check that PINECONE_API_KEY, GROQ_API_KEY, and the index are configured.",
+            500,
+        )
+
+    try:
+        result = rag_pipeline.invoke({"input": user_input})
+        if isinstance(result, dict):
+            answer = result.get("answer") or result.get("result") or ""
+            return answer if answer else "Sorry, I couldn't generate a response right now.", 500
+        return str(result)
+    except Exception:
+        logger.exception("Failed to generate bot response")
+        return "Sorry, I couldn't generate a response right now.", 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
