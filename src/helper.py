@@ -2,6 +2,7 @@
 Helper functions for document processing and embeddings
 """
 
+import logging
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -79,7 +80,12 @@ def initialize_embeddings():
     Returns:
         HuggingFaceEmbeddings instance
     """
+    logger = logging.getLogger("medical_chatbot")
+    logger.info("Loading embedding model on CPU (all-MiniLM-L6-v2)...")
     embeddings = HuggingFaceEmbeddings(
-        model_name='sentence-transformers/all-MiniLM-L6-v2'
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
     )
+    logger.info("Embedding model loaded.")
     return embeddings

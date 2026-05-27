@@ -3,6 +3,11 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
+ENV TOKENIZERS_PARALLELISM=false
+ENV OMP_NUM_THREADS=1
+ENV WARMUP_ON_START=true
 
 WORKDIR /app
 
@@ -22,6 +27,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy application
 COPY . /app
 
+# Pre-download embedding model during image build (avoids long runtime download on Render)
+RUN python -c "from langchain_community.embeddings import HuggingFaceEmbeddings; HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'}); print('Embedding model cached in image.')"
+
 EXPOSE 8080
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 180 --graceful-timeout 60 app:app"]
+CMD ["sh", "-c", "gunicorn --preload --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300 --graceful-timeout 120 app:app"]

@@ -28,6 +28,7 @@ rag_init_lock = threading.Lock()
 rag_init_error = None
 rag_init_started = False
 rag_init_thread = None
+rag_init_stage = "not_started"
 
 # Basic logger
 logger = logging.getLogger("medical_chatbot")
@@ -44,7 +45,7 @@ if sys.version_info >= (3, 12):
 
 def init_rag():
     """Lazy initialize LangChain, Pinecone, and Groq components."""
-    global rag_pipeline, rag_init_error
+    global rag_pipeline, rag_init_error, rag_init_stage
 
     # If we already have a pipeline, nothing to do.
     # If we had a previous init error, we allow retries (e.g. after fixing env vars).
@@ -56,6 +57,8 @@ def init_rag():
             return
 
         try:
+            rag_init_stage = "loading_imports"
+            logger.info("RAG init: loading imports")
             # Prefer the modern Pinecone + LangChain integration (works with pinecone>=6).
             # Fall back to the legacy LangChain vectorstore if needed.
             PineconeVectorStore = None
@@ -93,8 +96,12 @@ def init_rag():
             if GROQ_API_KEY:
                 os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
+            rag_init_stage = "loading_embeddings"
+            logger.info("RAG init: loading embeddings model")
             embedding_model = initialize_embeddings()
 
+            rag_init_stage = "connecting_pinecone"
+            logger.info("RAG init: connecting Pinecone index")
             if pc is not None and index is not None and PineconeVectorStore is not None:
                 # langchain-pinecone path
                 vector_store = PineconeVectorStore(index=index, embedding=embedding_model)
@@ -115,6 +122,8 @@ def init_rag():
                 search_kwargs={"k": 3},
             )
 
+            rag_init_stage = "building_chain"
+            logger.info("RAG init: building LLM + retrieval chain")
             llm_model = ChatGroq(
                 model=GROQ_MODEL_NAME,
                 api_key=GROQ_API_KEY,
@@ -129,11 +138,13 @@ def init_rag():
             document_chain = create_stuff_documents_chain(llm_model, chat_prompt)
             rag_pipeline = create_retrieval_chain(document_retriever, document_chain)
             rag_init_error = None
+            rag_init_stage = "ready"
 
             logger.info("RAG pipeline initialized successfully")
 
         except Exception as exc:
             rag_init_error = str(exc)
+            rag_init_stage = "failed"
             logger.exception("Failed to initialize RAG pipeline: %s", rag_init_error)
 
 
@@ -178,6 +189,7 @@ def health():
         "rag_pipeline_ready": rag_pipeline is not None,
         "rag_init_started": rag_init_started,
         "rag_init_thread_alive": bool(rag_init_thread and rag_init_thread.is_alive()),
+        "rag_init_stage": rag_init_stage,
         "rag_init_error": rag_init_error,
         "pinecone_index": PINECONE_INDEX_NAME,
         "groq_model": GROQ_MODEL_NAME,
@@ -222,6 +234,12 @@ def get_response():
     except Exception:
         logger.exception("Failed to generate bot response")
         return "Sorry, I couldn't generate a response right now.", 500
+
+
+# Warm up RAG when the app module loads (works with gunicorn --preload on Render).
+if os.getenv("WARMUP_ON_START", "true").lower() in ("1", "true", "yes"):
+    logger.info("WARMUP_ON_START: initializing RAG at startup")
+    init_rag()
 
 
 if __name__ == "__main__":
