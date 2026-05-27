@@ -3,6 +3,19 @@ Medical Chatbot Application
 A Flask-based RAG chatbot for medical queries using LangChain, Pinecone, and Groq
 """
 
+import sys
+
+# Fail fast with a clear message when running on unsupported Python versions.
+# LangChain / pydantic typing internals are incompatible with Python 3.12+ in
+# many released package versions; the app requires Python 3.11.
+if sys.version_info >= (3, 12):
+    raise RuntimeError(
+        f"Detected Python {sys.version_info.major}.{sys.version_info.minor}.\n"
+        "This application requires Python 3.11. Please set your host to use Python 3.11.\n"
+        "If you are deploying to Render, either: (1) set the service runtime to Python 3.11,\n"
+        "or (2) deploy using the provided Dockerfile which pins Python 3.11."
+    )
+
 import os
 from flask import Flask, render_template, request
 from dotenv import load_dotenv
