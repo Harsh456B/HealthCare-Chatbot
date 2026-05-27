@@ -1,43 +1,85 @@
-from langchain.document_loaders import PyPDFLoader, DirectoryLoader
+"""
+Helper functions for document processing and embeddings
+"""
+
+from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-from typing import List
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.schema import Document
+from typing import List
 
 
-#Extract Data From the PDF File
-def load_pdf_file(data):
-    loader= DirectoryLoader(data,
-                            glob="*.pdf",
-                            loader_cls=PyPDFLoader)
-
-    documents=loader.load()
-
+def load_pdf_documents(directory_path: str) -> List[Document]:
+    """
+    Load all PDF files from the specified directory
+    
+    Args:
+        directory_path: Path to directory containing PDF files
+        
+    Returns:
+        List of Document objects containing PDF content
+    """
+    loader = DirectoryLoader(
+        directory_path,
+        glob="*.pdf",
+        loader_cls=PyPDFLoader
+    )
+    
+    documents = loader.load()
     return documents
 
-def filter_to_minimal_docs(docs: List[Document]) -> List[Document]:
+
+def clean_document_metadata(documents: List[Document]) -> List[Document]:
     """
-    Given a list of Document objects, return a new list of Document objects
-    containing only 'source' in metadata and the original page_content.
+    Clean document metadata to keep only essential information
+    
+    Args:
+        documents: List of Document objects with metadata
+        
+    Returns:
+        List of Document objects with cleaned metadata
     """
-    minimal_docs: List[Document] = []
-    for doc in docs:
-        src = doc.metadata.get("source")
-        minimal_docs.append(
-            Document(
-                page_content=doc.page_content,
-                metadata={"source": src}
-            )
+    cleaned_docs = []
+    
+    for doc in documents:
+        source_path = doc.metadata.get("source", "")
+        
+        cleaned_doc = Document(
+            page_content=doc.page_content,
+            metadata={"source": source_path}
         )
-    return minimal_docs
+        cleaned_docs.append(cleaned_doc)
+    
+    return cleaned_docs
 
-# Split the documents into smaller chunks
-def text_split(extracted_data):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
-    texts_chunk = text_splitter.split_documents(extracted_data)
-    return texts_chunk
 
-#Download the Embeddings from HuggingFace 
-def download_hugging_face_embeddings():
-    embeddings=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')  #this model return 384 dimensions
+def split_documents_into_chunks(documents: List[Document]) -> List[Document]:
+    """
+    Split documents into smaller chunks for better processing
+    
+    Args:
+        documents: List of Document objects to split
+        
+    Returns:
+        List of Document chunks
+    """
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=20
+    )
+    
+    text_chunks = text_splitter.split_documents(documents)
+    return text_chunks
+
+
+def initialize_embeddings():
+    """
+    Initialize HuggingFace embeddings model
+    
+    Returns:
+        HuggingFaceEmbeddings instance
+    """
+    embeddings = HuggingFaceEmbeddings(
+        model_name='sentence-transformers/all-MiniLM-L6-v2'
+    )
     return embeddings

@@ -1,9 +1,23 @@
-system_prompt = (
-    "You are an Medical assistant for question-answering tasks. "
-    "Use the following pieces of retrieved context to answer "
-    "the question. If you don't know the answer, say that you "
-    "don't know. Use three sentences maximum and keep the "
-    "answer concise."
-    "\n\n"
-    "{context}"
-)
+"""
+Prompt templates for the medical chatbot
+"""
+
+
+def get_system_prompt_template() -> str:
+    """
+    Returns the system prompt template for the medical assistant
+    
+    Returns:
+        System prompt string with context placeholder
+    """
+    prompt = (
+        "You are a knowledgeable Medical Assistant specialized in answering "
+        "health-related questions. Use the provided context from medical "
+        "documents to answer user queries accurately. If the information is "
+        "not available in the context, politely state that you don't have "
+        "that information. Keep responses concise and limited to three "
+        "sentences maximum.\n\n"
+        "Context:\n{context}"
+    )
+    
+    return prompt
