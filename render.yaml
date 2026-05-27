@@ -6,5 +6,5 @@ services:
     branch: main
     dockerContext: .
     dockerfilePath: Dockerfile
-    startCommand: gunicorn --bind 0.0.0.0 $PORT app:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
     plan: free
