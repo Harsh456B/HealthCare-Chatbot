@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY . /app
 
 # Pre-download embedding model during image build (avoids long runtime download on Render)
-RUN python -c "from langchain_community.embeddings import HuggingFaceEmbeddings; HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'}); print('Embedding model cached in image.')"
+RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; FastEmbedEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2'); print('Embedding model cached in image.')"
 
 EXPOSE 8080
 

@@ -13,42 +13,72 @@ from src.prompt import get_system_prompt_template
 
 load_dotenv()
 
-# Initialize Flask application
 app = Flask(__name__)
 
-# Configuration
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "medical-chatbot"
 GROQ_MODEL_NAME = "llama-3.1-8b-instant"
 
-# Globals for lazy initialization
 rag_pipeline = None
 rag_init_lock = threading.Lock()
 rag_init_error = None
-rag_init_started = False
-rag_init_thread = None
 rag_init_stage = "not_started"
+rag_init_thread = None
 
-# Basic logger
+fallback_llm = None
+fallback_lock = threading.Lock()
+
 logger = logging.getLogger("medical_chatbot")
 logging.basicConfig(level=logging.INFO)
 
 if sys.version_info >= (3, 12):
     logger.warning(
         "Running on Python %s.%s — some dependencies may be incompatible. "
-        "If you see pydantic/typing errors, deploy with Python 3.11 or use the Dockerfile.",
+        "Use Python 3.11 or Docker on Render.",
         sys.version_info.major,
         sys.version_info.minor,
     )
 
 
+def get_fallback_llm():
+    """Lightweight Groq client (no embeddings) — always fast on Render."""
+    global fallback_llm
+    if fallback_llm is not None:
+        return fallback_llm
+    with fallback_lock:
+        if fallback_llm is not None:
+            return fallback_llm
+        if not GROQ_API_KEY:
+            raise RuntimeError("Missing GROQ_API_KEY")
+        from langchain_groq import ChatGroq
+
+        fallback_llm = ChatGroq(
+            model=GROQ_MODEL_NAME,
+            api_key=GROQ_API_KEY,
+            temperature=0,
+        )
+        return fallback_llm
+
+
+def answer_with_fallback(user_input: str) -> str:
+    """Answer without Pinecone/RAG when pipeline is not ready."""
+    llm = get_fallback_llm()
+    system = (
+        "You are a helpful medical assistant. Answer clearly in at most 3 sentences. "
+        "If you are unsure, say you are not certain and suggest consulting a doctor."
+    )
+    response = llm.invoke([
+        ("system", system),
+        ("human", user_input),
+    ])
+    return getattr(response, "content", str(response))
+
+
 def init_rag():
-    """Lazy initialize LangChain, Pinecone, and Groq components."""
+    """Initialize full RAG pipeline (heavy — runs in background on startup)."""
     global rag_pipeline, rag_init_error, rag_init_stage
 
-    # If we already have a pipeline, nothing to do.
-    # If we had a previous init error, we allow retries (e.g. after fixing env vars).
     if rag_pipeline is not None:
         return
 
@@ -59,27 +89,9 @@ def init_rag():
         try:
             rag_init_stage = "loading_imports"
             logger.info("RAG init: loading imports")
-            # Prefer the modern Pinecone + LangChain integration (works with pinecone>=6).
-            # Fall back to the legacy LangChain vectorstore if needed.
-            PineconeVectorStore = None
-            pc = None
-            index = None
 
-            try:
-                from pinecone import Pinecone  # pinecone>=3
-                from langchain_pinecone import PineconeVectorStore as LCPineconeVectorStore
-
-                pc = Pinecone(api_key=PINECONE_API_KEY)
-                index = pc.Index(PINECONE_INDEX_NAME)
-                PineconeVectorStore = LCPineconeVectorStore
-            except Exception:
-                import pinecone  # legacy client
-                try:
-                    # LangChain >= 0.1 (community split)
-                    from langchain_community.vectorstores import Pinecone as PineconeVectorStore
-                except Exception:
-                    # Older LangChain
-                    from langchain.vectorstores import Pinecone as PineconeVectorStore
+            from pinecone import Pinecone
+            from langchain_pinecone import PineconeVectorStore
             from langchain_groq import ChatGroq
             from langchain.chains import create_retrieval_chain
             from langchain.chains.combine_documents import create_stuff_documents_chain
@@ -91,31 +103,18 @@ def init_rag():
             if not GROQ_API_KEY:
                 raise RuntimeError("Missing GROQ_API_KEY")
 
-            if PINECONE_API_KEY:
-                os.environ["PINECONE_API_KEY"] = PINECONE_API_KEY
-            if GROQ_API_KEY:
-                os.environ["GROQ_API_KEY"] = GROQ_API_KEY
+            os.environ["PINECONE_API_KEY"] = PINECONE_API_KEY
+            os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
             rag_init_stage = "loading_embeddings"
-            logger.info("RAG init: loading embeddings model")
+            logger.info("RAG init: loading embeddings")
             embedding_model = initialize_embeddings()
 
             rag_init_stage = "connecting_pinecone"
-            logger.info("RAG init: connecting Pinecone index")
-            if pc is not None and index is not None and PineconeVectorStore is not None:
-                # langchain-pinecone path
-                vector_store = PineconeVectorStore(index=index, embedding=embedding_model)
-            else:
-                # Legacy langchain_community path
-                try:
-                    pinecone.init(api_key=PINECONE_API_KEY)
-                except Exception:
-                    pass
-
-                vector_store = PineconeVectorStore.from_existing_index(
-                    index_name=PINECONE_INDEX_NAME,
-                    embedding=embedding_model,
-                )
+            logger.info("RAG init: connecting Pinecone")
+            pc = Pinecone(api_key=PINECONE_API_KEY)
+            index = pc.Index(PINECONE_INDEX_NAME)
+            vector_store = PineconeVectorStore(index=index, embedding=embedding_model)
 
             document_retriever = vector_store.as_retriever(
                 search_type="similarity",
@@ -123,7 +122,7 @@ def init_rag():
             )
 
             rag_init_stage = "building_chain"
-            logger.info("RAG init: building LLM + retrieval chain")
+            logger.info("RAG init: building chain")
             llm_model = ChatGroq(
                 model=GROQ_MODEL_NAME,
                 api_key=GROQ_API_KEY,
@@ -139,58 +138,41 @@ def init_rag():
             rag_pipeline = create_retrieval_chain(document_retriever, document_chain)
             rag_init_error = None
             rag_init_stage = "ready"
-
-            logger.info("RAG pipeline initialized successfully")
+            logger.info("RAG pipeline ready")
 
         except Exception as exc:
             rag_init_error = str(exc)
             rag_init_stage = "failed"
-            logger.exception("Failed to initialize RAG pipeline: %s", rag_init_error)
+            logger.exception("RAG init failed: %s", rag_init_error)
 
 
-def ensure_rag_init_started():
-    """Kick off RAG initialization in background once."""
-    global rag_init_started, rag_init_thread
+def start_rag_init_background():
+    """Start RAG init once in a background thread (does not block HTTP)."""
+    global rag_init_thread, rag_init_stage
+
     if rag_pipeline is not None:
         return
 
-    # If a previous init thread died without producing a pipeline/error,
-    # allow a clean retry.
-    if (
-        rag_init_started
-        and rag_pipeline is None
-        and rag_init_error is None
-        and rag_init_thread is not None
-        and not rag_init_thread.is_alive()
-    ):
-        rag_init_started = False
-        rag_init_thread = None
-
-    # Do not block requests if init is already running (init_rag holds this lock
-    # during heavy model/vector initialization).
-    acquired = rag_init_lock.acquire(blocking=False)
-    if not acquired:
-        return
-    try:
-        if rag_pipeline is not None or rag_init_started:
+    with rag_init_lock:
+        if rag_pipeline is not None:
             return
-        rag_init_started = True
+        if rag_init_thread is not None and rag_init_thread.is_alive():
+            return
+        rag_init_stage = "starting"
         rag_init_thread = threading.Thread(target=init_rag, daemon=True)
         rag_init_thread.start()
-    finally:
-        rag_init_lock.release()
+        logger.info("RAG init started in background")
 
 
 @app.route("/health")
 def health():
-    """Lightweight health/debug endpoint."""
-    ensure_rag_init_started()
+    start_rag_init_background()
     return {
         "rag_pipeline_ready": rag_pipeline is not None,
-        "rag_init_started": rag_init_started,
-        "rag_init_thread_alive": bool(rag_init_thread and rag_init_thread.is_alive()),
         "rag_init_stage": rag_init_stage,
+        "rag_init_thread_alive": bool(rag_init_thread and rag_init_thread.is_alive()),
         "rag_init_error": rag_init_error,
+        "fallback_available": bool(GROQ_API_KEY),
         "pinecone_index": PINECONE_INDEX_NAME,
         "groq_model": GROQ_MODEL_NAME,
     }
@@ -207,39 +189,36 @@ def get_response():
     if not user_input:
         return "Please enter a message.", 400
 
-    ensure_rag_init_started()
+    start_rag_init_background()
 
-    if rag_pipeline is None and rag_init_error is None:
-        return (
-            "Model is warming up. Please retry in 20-60 seconds.",
-            503,
-        )
+    # Full RAG path when ready
+    if rag_pipeline is not None:
+        try:
+            result = rag_pipeline.invoke({"input": user_input})
+            if isinstance(result, dict):
+                answer = result.get("answer") or result.get("result") or ""
+                if answer:
+                    return answer
+            return str(result)
+        except Exception:
+            logger.exception("RAG invoke failed; using fallback")
 
-    if rag_init_error:
-        logger.error("RAG init error: %s", rag_init_error)
-        return (
-            "Unable to process requests at this time. "
-            "Check that PINECONE_API_KEY, GROQ_API_KEY, and the index are configured.",
-            500,
-        )
-
+    # Fast path — always return 200 text (no gunicorn HTML 500)
     try:
-        result = rag_pipeline.invoke({"input": user_input})
-        if isinstance(result, dict):
-            answer = result.get("answer") or result.get("result") or ""
-            if answer:
-                return answer
-            return "Sorry, I couldn't generate a response right now.", 500
-        return str(result)
+        answer = answer_with_fallback(user_input)
+        if rag_pipeline is None and rag_init_stage != "ready":
+            prefix = "[Quick mode — document search still loading] "
+            return prefix + answer
+        return answer
     except Exception:
-        logger.exception("Failed to generate bot response")
-        return "Sorry, I couldn't generate a response right now.", 500
+        logger.exception("Fallback failed")
+        if rag_init_error:
+            return f"Service error: {rag_init_error}", 500
+        return "Sorry, I could not generate a response right now.", 500
 
 
-# Warm up RAG when the app module loads (works with gunicorn --preload on Render).
-if os.getenv("WARMUP_ON_START", "true").lower() in ("1", "true", "yes"):
-    logger.info("WARMUP_ON_START: initializing RAG at startup")
-    init_rag()
+# Start background RAG load as soon as the app imports (gunicorn worker).
+start_rag_init_background()
 
 
 if __name__ == "__main__":
