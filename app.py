@@ -141,12 +141,19 @@ def ensure_rag_init_started():
     global rag_init_started
     if rag_pipeline is not None:
         return
-    with rag_init_lock:
+    # Do not block requests if init is already running (init_rag holds this lock
+    # during heavy model/vector initialization).
+    acquired = rag_init_lock.acquire(blocking=False)
+    if not acquired:
+        return
+    try:
         if rag_pipeline is not None or rag_init_started:
             return
         rag_init_started = True
         thread = threading.Thread(target=init_rag, daemon=True)
         thread.start()
+    finally:
+        rag_init_lock.release()
 
 
 @app.route("/health")
