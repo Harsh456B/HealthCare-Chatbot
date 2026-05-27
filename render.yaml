@@ -1,10 +1,8 @@
 services:
   - type: web
     name: MedicalChatbot-1
-    env: python
+    env: docker
     repo: https://github.com/Harsh456B/MedicalChatbot
     branch: main
-    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0 $PORT app:app
     plan: free
-    runtime: python-3.11.4
