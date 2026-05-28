@@ -1,12 +1,13 @@
-flask>=3.0.0
+flask==3.1.1
 gunicorn>=22.0.0
-python-dotenv>=1.0.1
+python-dotenv==1.1.0
 
-langchain>=0.2.11
-langchain-community>=0.2.10
-langchain-groq>=0.1.9
-langchain-pinecone>=0.1.3
-pinecone>=5.0.0
+# Keep LangChain stack on 0.3.x so `langchain.chains` imports in app.py work.
+langchain==0.3.26
+langchain-community==0.3.26
+langchain-groq==0.2.0
+langchain-pinecone==0.2.13
+pinecone>=6,<8
 
-# Lightweight embedding backend used by FastEmbedEmbeddings
-fastembed>=0.3.6
+# Embeddings backend
+fastembed>=0.4.0
