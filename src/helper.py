@@ -2,11 +2,9 @@
 Helper functions for document processing and embeddings
 """
 
-import logging
-import os
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain.schema import Document
 from typing import List
 
@@ -76,30 +74,12 @@ def split_documents_into_chunks(documents: List[Document]) -> List[Document]:
 
 def initialize_embeddings():
     """
-    Initialize embeddings (FastEmbed on CPU when available, else HuggingFace).
-    Must match index model: sentence-transformers/all-MiniLM-L6-v2 (384-dim).
+    Initialize lightweight FastEmbed embeddings model
+    
+    Returns:
+        FastEmbedEmbeddings instance
     """
-    log = logging.getLogger("medical_chatbot")
-    model_name = "sentence-transformers/all-MiniLM-L6-v2"
-
-    try:
-        from langchain_community.embeddings import FastEmbedEmbeddings
-
-        log.info("Loading FastEmbed model: %s", model_name)
-        embeddings = FastEmbedEmbeddings(
-            model_name=model_name,
-            cache_dir=os.getenv("HF_HOME", "/app/.cache/huggingface"),
-        )
-        log.info("FastEmbed model loaded.")
-        return embeddings
-    except Exception as fastembed_err:
-        log.warning("FastEmbed unavailable (%s), using HuggingFaceEmbeddings", fastembed_err)
-
-    log.info("Loading HuggingFace embeddings on CPU: %s", model_name)
-    embeddings = HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": "cpu"},
-        encode_kwargs={"normalize_embeddings": True},
+    embeddings = FastEmbedEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
-    log.info("HuggingFace embeddings loaded.")
     return embeddings

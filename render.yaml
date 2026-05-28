@@ -1,10 +1,13 @@
 services:
   - type: web
-    name: MedicalChatbot-1
-    env: docker
-    repo: https://github.com/Harsh456B/MedicalChatbot
-    branch: main
-    dockerContext: .
-    dockerfilePath: Dockerfile
+    name: medical-chatbot
+    env: python
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --preload --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300 --graceful-timeout 120 app:app
     plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
+      - key: PINECONE_INDEX_NAME
+        value: medical-chatbot
