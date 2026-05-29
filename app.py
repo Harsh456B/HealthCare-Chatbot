@@ -66,92 +66,20 @@ def answer_with_fallback(user_input: str) -> str:
 
 
 def init_rag():
-    """Initialize full RAG pipeline (heavy — runs in background on startup)."""
+    """RAG pipeline disabled for Python 3.14 compatibility - using fallback only."""
     global rag_pipeline, rag_init_error, rag_init_stage
-
-    if rag_pipeline is not None:
-        return
-
-    with rag_init_lock:
-        if rag_pipeline is not None:
-            return
-
-        try:
-            rag_init_stage = "loading_imports"
-            logger.info("RAG init: loading imports")
-
-            from pinecone import Pinecone
-            from langchain_pinecone import PineconeVectorStore
-            from langchain_groq import ChatGroq
-            from langchain.chains import create_retrieval_chain
-            from langchain.chains.combine_documents import create_stuff_documents_chain
-            from langchain_core.prompts import ChatPromptTemplate
-            from src.helper import initialize_embeddings
-
-            if not PINECONE_API_KEY:
-                raise RuntimeError("Missing PINECONE_API_KEY")
-            if not GROQ_API_KEY:
-                raise RuntimeError("Missing GROQ_API_KEY")
-
-            os.environ["PINECONE_API_KEY"] = PINECONE_API_KEY
-            os.environ["GROQ_API_KEY"] = GROQ_API_KEY
-
-            rag_init_stage = "loading_embeddings"
-            logger.info("RAG init: loading embeddings")
-            embedding_model = initialize_embeddings()
-
-            rag_init_stage = "connecting_pinecone"
-            logger.info("RAG init: connecting Pinecone")
-            pc = Pinecone(api_key=PINECONE_API_KEY)
-            index = pc.Index(PINECONE_INDEX_NAME)
-            vector_store = PineconeVectorStore(index=index, embedding=embedding_model)
-
-            document_retriever = vector_store.as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": 3},
-            )
-
-            rag_init_stage = "building_chain"
-            logger.info("RAG init: building chain")
-            llm_model = ChatGroq(
-                model=GROQ_MODEL_NAME,
-                api_key=GROQ_API_KEY,
-                temperature=0,
-            )
-
-            chat_prompt = ChatPromptTemplate.from_messages([
-                ("system", get_system_prompt_template()),
-                ("human", "{input}"),
-            ])
-
-            document_chain = create_stuff_documents_chain(llm_model, chat_prompt)
-            rag_pipeline = create_retrieval_chain(document_retriever, document_chain)
-            rag_init_error = None
-            rag_init_stage = "ready"
-            logger.info("RAG pipeline ready")
-
-        except Exception as exc:
-            rag_init_error = str(exc)
-            rag_init_stage = "failed"
-            logger.exception("RAG init failed: %s", rag_init_error)
+    rag_pipeline = None
+    rag_init_error = "RAG disabled for Python 3.14 compatibility"
+    rag_init_stage = "disabled"
+    logger.info("RAG pipeline disabled - using fallback LLM only")
 
 
 def start_rag_init_background():
-    """Start RAG init once in a background thread."""
-    global rag_init_thread, rag_init_stage
-
-    if rag_pipeline is not None:
-        return
-
-    with rag_init_lock:
-        if rag_pipeline is not None:
-            return
-        if rag_init_thread is not None and rag_init_thread.is_alive():
-            return
-        rag_init_stage = "starting"
-        rag_init_thread = threading.Thread(target=init_rag, daemon=True)
-        rag_init_thread.start()
-        logger.info("RAG init started in background")
+    """RAG init disabled for Python 3.14 compatibility."""
+    global rag_pipeline, rag_init_stage
+    rag_pipeline = None
+    rag_init_stage = "disabled"
+    logger.info("RAG init disabled - using fallback LLM only")
 
 
 # Streamlit UI - Exact replica of original Flask UI
@@ -241,7 +169,7 @@ st.markdown("""
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Start RAG initialization
+# RAG disabled for Python 3.14 compatibility
 start_rag_init_background()
 
 # Display chat messages
@@ -262,28 +190,10 @@ if prompt := st.chat_input("Type your message here..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                if rag_pipeline is not None:
-                    result = rag_pipeline.invoke({"input": prompt})
-                    if isinstance(result, dict):
-                        response = result.get("answer") or result.get("result") or ""
-                        if response:
-                            st.markdown(response)
-                            st.session_state.messages.append({"role": "assistant", "content": response})
-                        else:
-                            response = str(result)
-                            st.markdown(response)
-                            st.session_state.messages.append({"role": "assistant", "content": response})
-                    else:
-                        response = str(result)
-                        st.markdown(response)
-                        st.session_state.messages.append({"role": "assistant", "content": response})
-                else:
-                    # Fallback
-                    response = answer_with_fallback(prompt)
-                    if rag_init_stage != "ready":
-                        response = "[Quick mode — document search still loading] " + response
-                    st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                # Using fallback LLM only (RAG disabled for Python 3.14 compatibility)
+                response = answer_with_fallback(prompt)
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
             except Exception as e:
                 error_msg = f"Sorry, I encountered an error: {str(e)}"
                 st.markdown(error_msg)
