@@ -127,14 +127,6 @@
         .chat-input button:hover {
             background: #3a7bc8;
         }
-        .chat-input button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-        .typing-indicator {
-            color: #666;
-            font-style: italic;
-        }
     </style>
 </head>
 <body>
@@ -146,151 +138,35 @@
                 <p>Ask me anything about medical topics!</p>
             </div>
         </div>
-        <div id="chatMessages" class="chat-messages">
-            <!-- Messages will be dynamically inserted here -->
+        <div class="chat-messages">
+            {% for msg in messages %}
+            <div class="message {{ msg.role }}">
+                {% if msg.role == 'user' %}
+                <div class="message-content">
+                    {{ msg.content }}
+                    <span class="message-time">{{ msg.time }}</span>
+                </div>
+                <img src="https://i.ibb.co/d5b84Xw/Untitled-design.png" alt="User">
+                {% else %}
+                <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" alt="Bot">
+                <div class="message-content">
+                    {{ msg.content }}
+                    <span class="message-time">{{ msg.time }}</span>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
         </div>
         <div class="chat-input">
-            <form id="chatForm" style="display: flex; gap: 10px; flex: 1;">
+            <form action="/" method="POST" style="display: flex; gap: 10px; flex: 1;">
                 <input type="text" 
-                       id="userInput" 
                        name="msg" 
                        placeholder="Type your message here..." 
                        autocomplete="off" 
                        required/>
-                <button type="submit" id="sendButton">Send</button>
+                <button type="submit">Send</button>
             </form>
         </div>
     </div>
-    
-    <!-- Chat Functionality -->
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            const chatForm = document.getElementById("chatForm");
-            const chatMessages = document.getElementById("chatMessages");
-            const userInput = document.getElementById("userInput");
-            
-            // Handle form submission
-            chatForm.addEventListener("submit", function(event) {
-                event.preventDefault();
-                
-                const userMessage = userInput.value.trim();
-                
-                if (!userMessage) {
-                    return;
-                }
-                
-                // Get current time
-                const now = new Date();
-                const timeString = now.getHours() + ":" + 
-                                  String(now.getMinutes()).padStart(2, '0');
-                
-                // Display user message
-                const userMessageHtml = `
-                    <div class="message user">
-                        <div class="message-content">
-                            ${escapeHtml(userMessage)}
-                            <span class="message-time">${timeString}</span>
-                        </div>
-                        <img src="https://i.ibb.co/d5b84Xw/Untitled-design.png" alt="User">
-                    </div>
-                `;
-                
-                chatMessages.insertAdjacentHTML('beforeend', userMessageHtml);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-                
-                // Clear input
-                userInput.value = "";
-                
-                // Disable form while processing
-                userInput.disabled = true;
-                chatForm.querySelector('button').disabled = true;
-                
-                // Show typing indicator
-                const typingIndicator = `
-                    <div class="message bot">
-                        <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" alt="Bot">
-                        <div class="message-content">
-                            <span class="typing-indicator">Typing...</span>
-                        </div>
-                    </div>
-                `;
-                chatMessages.insertAdjacentHTML('beforeend', typingIndicator);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-                
-                // Send request to server
-                const formData = new FormData();
-                formData.append("msg", userMessage);
-                
-                fetch("/get", {
-                    method: "POST",
-                    body: formData
-                })
-                .then(response => response.text())
-                .then(data => {
-                    // Remove typing indicator
-                    const typingElements = chatMessages.querySelectorAll('.typing-indicator');
-                    typingElements.forEach(el => el.closest('.message').remove());
-                    
-                    // Display bot response
-                    const botMessageHtml = `
-                        <div class="message bot">
-                            <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" alt="Bot">
-                            <div class="message-content">
-                                ${escapeHtml(data)}
-                                <span class="message-time">${timeString}</span>
-                            </div>
-                        </div>
-                    `;
-                    
-                    chatMessages.insertAdjacentHTML('beforeend', botMessageHtml);
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                    
-                    // Re-enable form
-                    userInput.disabled = false;
-                    chatForm.querySelector('button').disabled = false;
-                    userInput.focus();
-                })
-                .catch(error => {
-                    // Remove typing indicator
-                    const typingElements = chatMessages.querySelectorAll('.typing-indicator');
-                    typingElements.forEach(el => el.closest('.message').remove());
-                    
-                    // Display error message
-                    const errorMessageHtml = `
-                        <div class="message bot">
-                            <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" alt="Bot">
-                            <div class="message-content">
-                                ${escapeHtml("Error: " + error.message)}
-                                <span class="message-time">${timeString}</span>
-                            </div>
-                        </div>
-                    `;
-                    
-                    chatMessages.insertAdjacentHTML('beforeend', errorMessageHtml);
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                    
-                    // Re-enable form
-                    userInput.disabled = false;
-                    chatForm.querySelector('button').disabled = false;
-                    userInput.focus();
-                });
-            });
-            
-            // Helper function to escape HTML
-            function escapeHtml(text) {
-                const map = {
-                    '&': '&amp;',
-                    '<': '&lt;',
-                    '>': '&gt;',
-                    '"': '&quot;',
-                    "'": '&#039;'
-                };
-                return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-            }
-            
-            // Focus on input when page loads
-            userInput.focus();
-        });
-    </script>
 </body>
 </html>

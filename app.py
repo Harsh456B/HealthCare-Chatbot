@@ -178,9 +178,46 @@ def health():
     }
 
 
-@app.route("/")
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template("chat.html")
+    messages = []
+    
+    if request.method == "POST":
+        user_input = request.form.get("msg", "").strip()
+        if user_input:
+            # Get current time
+            from datetime import datetime
+            time_str = datetime.now().strftime("%H:%M")
+            
+            # Add user message
+            messages.append({"role": "user", "content": user_input, "time": time_str})
+            
+            # Get bot response
+            start_rag_init_background()
+            
+            try:
+                if rag_pipeline is not None:
+                    result = rag_pipeline.invoke({"input": user_input})
+                    if isinstance(result, dict):
+                        bot_response = result.get("answer") or result.get("result") or ""
+                        if bot_response:
+                            messages.append({"role": "bot", "content": bot_response, "time": time_str})
+                            return render_template("chat.html", messages=messages)
+                    messages.append({"role": "bot", "content": str(result), "time": time_str})
+                    return render_template("chat.html", messages=messages)
+            except Exception:
+                pass
+            
+            # Fallback
+            try:
+                bot_response = answer_with_fallback(user_input)
+                if rag_pipeline is None and rag_init_stage != "ready":
+                    bot_response = "[Quick mode — document search still loading] " + bot_response
+                messages.append({"role": "bot", "content": bot_response, "time": time_str})
+            except Exception:
+                messages.append({"role": "bot", "content": "Sorry, I could not generate a response right now.", "time": time_str})
+    
+    return render_template("chat.html", messages=messages)
 
 
 @app.route("/get", methods=["POST"])
