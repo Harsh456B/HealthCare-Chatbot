@@ -64,24 +64,21 @@
         </div>
     </div>
     
-    <!-- jQuery -->
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-    
     <!-- Bootstrap JS -->
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/js/bootstrap.min.js"></script>
     
     <!-- Chat Functionality -->
     <script>
-        $(document).ready(function() {
-            const chatForm = $("#chatForm");
-            const chatMessages = $("#chatMessages");
-            const userInput = $("#userInput");
+        document.addEventListener("DOMContentLoaded", function() {
+            const chatForm = document.getElementById("chatForm");
+            const chatMessages = document.getElementById("chatMessages");
+            const userInput = document.getElementById("userInput");
             
             // Handle form submission
-            chatForm.on("submit", function(event) {
+            chatForm.addEventListener("submit", function(event) {
                 event.preventDefault();
                 
-                const userMessage = userInput.val().trim();
+                const userMessage = userInput.value.trim();
                 
                 if (!userMessage) {
                     return;
@@ -107,14 +104,15 @@
                     </div>
                 `;
                 
-                chatMessages.append(userMessageHtml);
-                chatMessages.scrollTop(chatMessages[0].scrollHeight);
+                chatMessages.insertAdjacentHTML('beforeend', userMessageHtml);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
                 
                 // Clear input
-                userInput.val("");
+                userInput.value = "";
                 
                 // Disable form while processing
-                chatForm.find("input, button").prop("disabled", true);
+                userInput.disabled = true;
+                chatForm.querySelector('button').disabled = true;
                 
                 // Show typing indicator
                 const typingIndicator = `
@@ -129,79 +127,73 @@
                         </div>
                     </div>
                 `;
-                chatMessages.append(typingIndicator);
-                chatMessages.scrollTop(chatMessages[0].scrollHeight);
+                chatMessages.insertAdjacentHTML('beforeend', typingIndicator);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
                 
                 // Send request to server
-                $.ajax({
-                    url: "/get",
-                    type: "POST",
-                    data: { msg: userMessage },
-                    success: function(response) {
-                        // Remove typing indicator
-                        chatMessages.find(".typing-indicator").parent().parent().remove();
-                        
-                        // Display bot response
-                        const botMessageHtml = `
-                            <div class="d-flex justify-content-start mb-4">
-                                <div class="img_cont_msg">
-                                    <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" 
-                                         class="rounded-circle user_img_msg" 
-                                         alt="Bot">
-                                </div>
-                                <div class="msg_cotainer">
-                                    ${escapeHtml(response)}
-                                    <span class="msg_time">${timeString}</span>
-                                </div>
+                const formData = new FormData();
+                formData.append("msg", userMessage);
+                
+                fetch("/get", {
+                    method: "POST",
+                    body: formData
+                })
+                .then(response => response.text())
+                .then(data => {
+                    // Remove typing indicator
+                    const typingElements = chatMessages.querySelectorAll('.typing-indicator');
+                    typingElements.forEach(el => el.closest('.d-flex').remove());
+                    
+                    // Display bot response
+                    const botMessageHtml = `
+                        <div class="d-flex justify-content-start mb-4">
+                            <div class="img_cont_msg">
+                                <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" 
+                                     class="rounded-circle user_img_msg" 
+                                     alt="Bot">
                             </div>
-                        `;
-                        
-                        chatMessages.append(botMessageHtml);
-                        chatMessages.scrollTop(chatMessages[0].scrollHeight);
-                        
-                        // Re-enable form
-                        chatForm.find("input, button").prop("disabled", false);
-                        userInput.focus();
-                    },
-                    error: function(xhr, status, error) {
-                        // Remove typing indicator
-                        chatMessages.find(".typing-indicator").parent().parent().remove();
-                        
-                        // Display error message
-                        const rawText = (xhr && xhr.responseText) ? xhr.responseText.trim() : "";
-                        const contentType = xhr && xhr.getResponseHeader
-                            ? (xhr.getResponseHeader("Content-Type") || "")
-                            : "";
-                        const looksLikeHtml = rawText.startsWith("<!DOCTYPE") || rawText.startsWith("<html");
-                        const shouldHideRaw =
-                            looksLikeHtml ||
-                            contentType.toLowerCase().includes("text/html") ||
-                            (xhr && xhr.status >= 500);
-
-                        const serverMessage = (!rawText || shouldHideRaw)
-                            ? "Sorry, I encountered an error. Please try again."
-                            : rawText;
-                        const errorMessageHtml = `
-                            <div class="d-flex justify-content-start mb-4">
-                                <div class="img_cont_msg">
-                                    <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" 
-                                         class="rounded-circle user_img_msg" 
-                                         alt="Bot">
-                                </div>
-                                <div class="msg_cotainer">
-                                    ${escapeHtml(serverMessage)}
-                                    <span class="msg_time">${timeString}</span>
-                                </div>
+                            <div class="msg_cotainer">
+                                ${escapeHtml(data)}
+                                <span class="msg_time">${timeString}</span>
                             </div>
-                        `;
-                        
-                        chatMessages.append(errorMessageHtml);
-                        chatMessages.scrollTop(chatMessages[0].scrollHeight);
-                        
-                        // Re-enable form
-                        chatForm.find("input, button").prop("disabled", false);
-                        userInput.focus();
-                    }
+                        </div>
+                    `;
+                    
+                    chatMessages.insertAdjacentHTML('beforeend', botMessageHtml);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    
+                    // Re-enable form
+                    userInput.disabled = false;
+                    chatForm.querySelector('button').disabled = false;
+                    userInput.focus();
+                })
+                .catch(error => {
+                    // Remove typing indicator
+                    const typingElements = chatMessages.querySelectorAll('.typing-indicator');
+                    typingElements.forEach(el => el.closest('.d-flex').remove());
+                    
+                    // Display error message
+                    const errorMessageHtml = `
+                        <div class="d-flex justify-content-start mb-4">
+                            <div class="img_cont_msg">
+                                <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" 
+                                     class="rounded-circle user_img_msg" 
+                                     alt="Bot">
+                            </div>
+                            <div class="msg_cotainer">
+                                ${escapeHtml("Error: " + error.message)}
+                                <span class="msg_time">${timeString}</span>
+                            </div>
+                        </div>
+                    `;
+                    
+                    chatMessages.insertAdjacentHTML('beforeend', errorMessageHtml);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    
+                    // Re-enable form
+                    userInput.disabled = false;
+                    chatForm.querySelector('button').disabled = false;
+                    userInput.focus();
                 });
             });
             
