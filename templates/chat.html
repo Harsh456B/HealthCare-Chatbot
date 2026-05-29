@@ -140,6 +140,8 @@
                 
                 // Send request to server
                 console.log("About to send fetch request to /get");
+                console.log("Request body:", "msg=" + encodeURIComponent(userMessage));
+                
                 fetch("/get", {
                     method: "POST",
                     headers: {
@@ -149,6 +151,11 @@
                 })
                 .then(response => {
                     console.log("Fetch response received:", response);
+                    console.log("Response status:", response.status);
+                    console.log("Response ok:", response.ok);
+                    if (!response.ok) {
+                        throw new Error("HTTP error! status: " + response.status);
+                    }
                     return response.text();
                 })
                 .then(data => {
