@@ -144,6 +144,7 @@
                     type: "POST",
                     data: { msg: userMessage },
                     success: function(response) {
+                        console.log("Success:", response);
                         // Remove typing indicator
                         chatMessages.find(".typing-indicator").parent().parent().remove();
                         
@@ -166,23 +167,12 @@
                         chatMessages.scrollTop(chatMessages[0].scrollHeight);
                     },
                     error: function(xhr, status, error) {
+                        console.error("Error:", xhr, status, error);
                         // Remove typing indicator
                         chatMessages.find(".typing-indicator").parent().parent().remove();
                         
                         // Display error message
-                        const rawText = (xhr && xhr.responseText) ? xhr.responseText.trim() : "";
-                        const contentType = xhr && xhr.getResponseHeader
-                            ? (xhr.getResponseHeader("Content-Type") || "")
-                            : "";
-                        const looksLikeHtml = rawText.startsWith("<!DOCTYPE") || rawText.startsWith("<html");
-                        const shouldHideRaw =
-                            looksLikeHtml ||
-                            contentType.toLowerCase().includes("text/html") ||
-                            (xhr && xhr.status >= 500);
-
-                        const serverMessage = (!rawText || shouldHideRaw)
-                            ? "Sorry, I encountered an error. Please try again."
-                            : rawText;
+                        const errorMessage = "Error: " + (xhr.responseText || error || "Unknown error");
                         const errorMessageHtml = `
                             <div class="d-flex justify-content-start mb-4">
                                 <div class="img_cont_msg">
@@ -191,7 +181,7 @@
                                          alt="Bot">
                                 </div>
                                 <div class="msg_cotainer">
-                                    ${escapeHtml(serverMessage)}
+                                    ${escapeHtml(errorMessage)}
                                     <span class="msg_time">${timeString}</span>
                                 </div>
                             </div>
