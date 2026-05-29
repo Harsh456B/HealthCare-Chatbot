@@ -139,18 +139,22 @@
                 chatMessages.scrollTop(chatMessages[0].scrollHeight);
                 
                 // Send request to server
-                console.log("About to send AJAX request to /get");
-                $.ajax({
-                    url: "/get",
-                    type: "POST",
-                    data: { msg: userMessage },
-                    beforeSend: function() {
-                        console.log("AJAX request starting");
+                console.log("About to send fetch request to /get");
+                fetch("/get", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
                     },
-                    success: function(response) {
-                        console.log("Success:", response);
-                        // Remove typing indicator
-                        chatMessages.find(".typing-indicator").parent().parent().remove();
+                    body: "msg=" + encodeURIComponent(userMessage)
+                })
+                .then(response => {
+                    console.log("Fetch response received:", response);
+                    return response.text();
+                })
+                .then(data => {
+                    console.log("Success:", data);
+                    // Remove typing indicator
+                    chatMessages.find(".typing-indicator").parent().parent().remove();
                         
                         // Display bot response
                         const botMessageHtml = `
@@ -169,14 +173,18 @@
                         
                         chatMessages.append(botMessageHtml);
                         chatMessages.scrollTop(chatMessages[0].scrollHeight);
-                    },
-                    error: function(xhr, status, error) {
-                        console.error("Error:", xhr, status, error);
+                        
+                        // Re-enable form
+                        chatForm.find("input, button").prop("disabled", false);
+                        userInput.focus();
+                    })
+                    .catch(error => {
+                        console.error("Error:", error);
                         // Remove typing indicator
                         chatMessages.find(".typing-indicator").parent().parent().remove();
                         
                         // Display error message
-                        const errorMessage = "Error: " + (xhr.responseText || error || "Unknown error");
+                        const errorMessage = "Error: " + (error.message || "Unknown error");
                         const errorMessageHtml = `
                             <div class="d-flex justify-content-start mb-4">
                                 <div class="img_cont_msg">
@@ -193,13 +201,11 @@
                         
                         chatMessages.append(errorMessageHtml);
                         chatMessages.scrollTop(chatMessages[0].scrollHeight);
-                    },
-                    complete: function() {
+                        
                         // Re-enable form
                         chatForm.find("input, button").prop("disabled", false);
                         userInput.focus();
-                    }
-                });
+                    });
             });
             
             // Helper function to escape HTML
