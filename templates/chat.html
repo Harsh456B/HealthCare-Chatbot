@@ -139,10 +139,14 @@
                 chatMessages.scrollTop(chatMessages[0].scrollHeight);
                 
                 // Send request to server
+                console.log("About to send AJAX request to /get");
                 $.ajax({
                     url: "/get",
                     type: "POST",
                     data: { msg: userMessage },
+                    beforeSend: function() {
+                        console.log("AJAX request starting");
+                    },
                     success: function(response) {
                         console.log("Success:", response);
                         // Remove typing indicator
