@@ -82,11 +82,14 @@
             
             // Handle form submission
             chatForm.on("submit", function(event) {
+                console.log("Form submitted!");
                 event.preventDefault();
                 
                 const userMessage = userInput.val().trim();
+                console.log("User message:", userMessage);
                 
                 if (!userMessage) {
+                    console.log("Empty message, returning");
                     return;
                 }
                 
