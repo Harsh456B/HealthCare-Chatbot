@@ -1,17 +1,19 @@
 """
 Medical Chatbot Application
-A Streamlit-based RAG chatbot for medical queries using LangChain, Pinecone, and Groq
+A Flask-based RAG chatbot for medical queries using LangChain, Pinecone, and Groq
 """
 
 import os
 import sys
 import threading
 import logging
-import streamlit as st
+from flask import Flask, render_template, request
 from dotenv import load_dotenv
 from src.prompt import get_system_prompt_template
 
 load_dotenv()
+
+app = Flask(__name__)
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -162,99 +164,65 @@ def start_rag_init_background():
         logger.info("RAG init started in background")
 
 
-# Streamlit UI
-st.set_page_config(
-    page_title="Medical Chatbot", 
-    page_icon="🏥",
-    layout="wide"
-)
-
-# Custom CSS to match original UI
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #f0f2f5;
+@app.route("/health")
+def health():
+    start_rag_init_background()
+    return {
+        "rag_pipeline_ready": rag_pipeline is not None,
+        "rag_init_stage": rag_init_stage,
+        "rag_init_thread_alive": bool(rag_init_thread and rag_init_thread.is_alive()),
+        "rag_init_error": rag_init_error,
+        "fallback_available": bool(GROQ_API_KEY),
+        "pinecone_index": PINECONE_INDEX_NAME,
+        "groq_model": GROQ_MODEL_NAME,
     }
-    .chat-container {
-        max-width: 800px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        padding: 20px;
-    }
-    .stChatMessage {
-        background-color: #f9f9f9;
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
 
-st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
-# Header
-st.markdown("""
-<div style="background: #4a90e2; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px;">
-    <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" style="width: 50px; height: 50px; border-radius: 50%; border: 2px solid white;">
-    <div>
-        <h2 style="margin: 0; font-size: 18px;">Medical Chatbot</h2>
-        <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Ask me anything about medical topics!</p>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# Initialize chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Start RAG initialization
-start_rag_init_background()
-
-# Display chat messages
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# Chat input
-if prompt := st.chat_input("Type your message here..."):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
+@app.route("/", methods=["GET", "POST"])
+def index():
+    messages = []
     
-    # Display user message
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    
-    # Get bot response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+    if request.method == "POST":
+        user_input = request.form.get("msg", "").strip()
+        if user_input:
+            # Get current time
+            from datetime import datetime
+            time_str = datetime.now().strftime("%H:%M")
+            
+            # Add user message
+            messages.append({"role": "user", "content": user_input, "time": time_str})
+            
+            # Get bot response
+            start_rag_init_background()
+            
             try:
                 if rag_pipeline is not None:
-                    result = rag_pipeline.invoke({"input": prompt})
+                    result = rag_pipeline.invoke({"input": user_input})
                     if isinstance(result, dict):
-                        response = result.get("answer") or result.get("result") or ""
-                        if response:
-                            st.markdown(response)
-                            st.session_state.messages.append({"role": "assistant", "content": response})
-                        else:
-                            response = str(result)
-                            st.markdown(response)
-                            st.session_state.messages.append({"role": "assistant", "content": response})
-                    else:
-                        response = str(result)
-                        st.markdown(response)
-                        st.session_state.messages.append({"role": "assistant", "content": response})
-                else:
-                    # Fallback
-                    response = answer_with_fallback(prompt)
-                    if rag_init_stage != "ready":
-                        response = "[Quick mode — document search still loading] " + response
-                    st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
-            except Exception as e:
-                error_msg = f"Sorry, I encountered an error: {str(e)}"
-                st.markdown(error_msg)
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                        bot_response = result.get("answer") or result.get("result") or ""
+                        if bot_response:
+                            messages.append({"role": "bot", "content": bot_response, "time": time_str})
+                            return render_template("chat.html", messages=messages)
+                    messages.append({"role": "bot", "content": str(result), "time": time_str})
+                    return render_template("chat.html", messages=messages)
+            except Exception:
+                pass
+            
+            # Fallback
+            try:
+                bot_response = answer_with_fallback(user_input)
+                if rag_pipeline is None and rag_init_stage != "ready":
+                    bot_response = "[Quick mode — document search still loading] " + bot_response
+                messages.append({"role": "bot", "content": bot_response, "time": time_str})
+            except Exception:
+                messages.append({"role": "bot", "content": "Sorry, I could not generate a response right now.", "time": time_str})
+    
+    return render_template("chat.html", messages=messages)
 
-st.markdown('</div>', unsafe_allow_html=True)
+
+# Start background RAG load as soon as the app imports (gunicorn worker).
+start_rag_init_background()
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
