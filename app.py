@@ -1,19 +1,17 @@
 """
 Medical Chatbot Application
-A Flask-based RAG chatbot for medical queries using LangChain, Pinecone, and Groq
+A Streamlit-based RAG chatbot for medical queries using LangChain, Pinecone, and Groq
 """
 
 import os
 import sys
 import threading
 import logging
-from flask import Flask, render_template, request
+import streamlit as st
 from dotenv import load_dotenv
 from src.prompt import get_system_prompt_template
 
 load_dotenv()
-
-app = Flask(__name__)
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -32,17 +30,9 @@ fallback_lock = threading.Lock()
 logger = logging.getLogger("medical_chatbot")
 logging.basicConfig(level=logging.INFO)
 
-if sys.version_info >= (3, 12):
-    logger.warning(
-        "Running on Python %s.%s — some dependencies may be incompatible. "
-        "Use Python 3.11 or Docker on Render.",
-        sys.version_info.major,
-        sys.version_info.minor,
-    )
-
 
 def get_fallback_llm():
-    """Lightweight Groq client (no embeddings) — always fast on Render."""
+    """Lightweight Groq client (no embeddings) — always fast."""
     global fallback_llm
     if fallback_llm is not None:
         return fallback_llm
@@ -147,7 +137,7 @@ def init_rag():
 
 
 def start_rag_init_background():
-    """Start RAG init once in a background thread (does not block HTTP)."""
+    """Start RAG init once in a background thread."""
     global rag_init_thread, rag_init_stage
 
     if rag_pipeline is not None:
@@ -164,65 +154,148 @@ def start_rag_init_background():
         logger.info("RAG init started in background")
 
 
-@app.route("/health")
-def health():
-    start_rag_init_background()
-    return {
-        "rag_pipeline_ready": rag_pipeline is not None,
-        "rag_init_stage": rag_init_stage,
-        "rag_init_thread_alive": bool(rag_init_thread and rag_init_thread.is_alive()),
-        "rag_init_error": rag_init_error,
-        "fallback_available": bool(GROQ_API_KEY),
-        "pinecone_index": PINECONE_INDEX_NAME,
-        "groq_model": GROQ_MODEL_NAME,
+# Streamlit UI - Exact replica of original Flask UI
+st.set_page_config(
+    page_title="Medical Chatbot", 
+    page_icon="🏥",
+    layout="centered"
+)
+
+# Custom CSS to exactly match original Flask UI
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #f0f2f5;
     }
+    .main {
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+    .chat-container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+    .chat-header {
+        background: #4a90e2;
+        color: white;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+    .chat-header img {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        border: 2px solid white;
+    }
+    .chat-header h2 {
+        margin: 0;
+        font-size: 18px;
+    }
+    .chat-header p {
+        margin: 5px 0 0 0;
+        font-size: 14px;
+        opacity: 0.9;
+    }
+    .chat-messages {
+        padding: 20px;
+        background: #f9f9f9;
+        min-height: 400px;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    .stChatMessage {
+        background-color: transparent;
+        border-radius: 0;
+        padding: 0;
+        margin-bottom: 15px;
+    }
+    .stChatMessage[data-testid="st-chat-message"] {
+        background-color: transparent;
+    }
+    .stChatMessage[data-testid="st-chat-message"] > div {
+        background-color: transparent;
+    }
+</style>
+""", unsafe_allow_html=True)
 
+st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    messages = []
-    
-    if request.method == "POST":
-        user_input = request.form.get("msg", "").strip()
-        if user_input:
-            # Get current time
-            from datetime import datetime
-            time_str = datetime.now().strftime("%H:%M")
-            
-            # Add user message
-            messages.append({"role": "user", "content": user_input, "time": time_str})
-            
-            # Get bot response
-            start_rag_init_background()
-            
-            try:
-                if rag_pipeline is not None:
-                    result = rag_pipeline.invoke({"input": user_input})
-                    if isinstance(result, dict):
-                        bot_response = result.get("answer") or result.get("result") or ""
-                        if bot_response:
-                            messages.append({"role": "bot", "content": bot_response, "time": time_str})
-                            return render_template("chat.html", messages=messages)
-                    messages.append({"role": "bot", "content": str(result), "time": time_str})
-                    return render_template("chat.html", messages=messages)
-            except Exception:
-                pass
-            
-            # Fallback
-            try:
-                bot_response = answer_with_fallback(user_input)
-                if rag_pipeline is None and rag_init_stage != "ready":
-                    bot_response = "[Quick mode — document search still loading] " + bot_response
-                messages.append({"role": "bot", "content": bot_response, "time": time_str})
-            except Exception:
-                messages.append({"role": "bot", "content": "Sorry, I could not generate a response right now.", "time": time_str})
-    
-    return render_template("chat.html", messages=messages)
+# Header - Exact replica of original
+st.markdown("""
+<div class="chat-header">
+    <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" alt="Medical Bot">
+    <div>
+        <h2>Medical Chatbot</h2>
+        <p>Ask me anything about medical topics!</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Start background RAG load as soon as the app imports (gunicorn worker).
+# Start RAG initialization
 start_rag_init_background()
 
+# Display chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
+# Chat input
+if prompt := st.chat_input("Type your message here..."):
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Display user message
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    # Get bot response
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                if rag_pipeline is not None:
+                    result = rag_pipeline.invoke({"input": prompt})
+                    if isinstance(result, dict):
+                        response = result.get("answer") or result.get("result") or ""
+                        if response:
+                            st.markdown(response)
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+                        else:
+                            response = str(result)
+                            st.markdown(response)
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+                    else:
+                        response = str(result)
+                        st.markdown(response)
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                else:
+                    # Fallback
+                    response = answer_with_fallback(prompt)
+                    if rag_init_stage != "ready":
+                        response = "[Quick mode — document search still loading] " + response
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+            except Exception as e:
+                error_msg = f"Sorry, I encountered an error: {str(e)}"
+                st.markdown(error_msg)
+                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Hide default Streamlit elements
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stDeployButton {display:none;}
+</style>
+""", unsafe_allow_html=True)
