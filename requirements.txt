@@ -1,5 +1,4 @@
-flask==3.1.1
-gunicorn>=22.0.0
+streamlit>=1.39.0
 python-dotenv==1.1.0
 
 # Keep LangChain stack on 0.3.x so `langchain.chains` imports in app.py work.
