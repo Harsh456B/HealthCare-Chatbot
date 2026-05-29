@@ -163,10 +163,47 @@ def start_rag_init_background():
 
 
 # Streamlit UI
-st.set_page_config(page_title="Medical Chatbot", page_icon="🏥")
+st.set_page_config(
+    page_title="Medical Chatbot", 
+    page_icon="🏥",
+    layout="wide"
+)
 
-st.title("🏥 Medical Chatbot")
-st.write("Ask me anything about medical topics!")
+# Custom CSS to match original UI
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #f0f2f5;
+    }
+    .chat-container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        padding: 20px;
+    }
+    .stChatMessage {
+        background-color: #f9f9f9;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+
+# Header
+st.markdown("""
+<div style="background: #4a90e2; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px;">
+    <img src="https://cdn-icons-png.flaticon.com/512/387/387569.png" style="width: 50px; height: 50px; border-radius: 50%; border: 2px solid white;">
+    <div>
+        <h2 style="margin: 0; font-size: 18px;">Medical Chatbot</h2>
+        <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Ask me anything about medical topics!</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -219,3 +256,5 @@ if prompt := st.chat_input("Type your message here..."):
                 error_msg = f"Sorry, I encountered an error: {str(e)}"
                 st.markdown(error_msg)
                 st.session_state.messages.append({"role": "assistant", "content": error_msg})
+
+st.markdown('</div>', unsafe_allow_html=True)
